@@ -1,0 +1,268 @@
+---
+title: "Direct-Mail Fundraising"
+author: "Jason Louwagie"
+date: "8/13/2021"
+output: html_document
+---
+
+## Background
+
+#### A national veterans organization wishes to develop a predictive model to improve the cost-effectiveness of their direct marketing campaign. The organization, with its in-house database of over 13 million donors, is one of the largest direct-mail fundraisers in the United States. According to their recent mailing records, the overall response rate is 5.1%. Out of those who responded (donated), the average donation is $13.00. Each mailing, which includes a gift of personalized address labels and assortments of cards and envelopes, costs $0.68 to produce and send. Using these facts, we take a  sample of this dataset to develop a classification model that can effectively capture donors so that the expected net profit is maximized. Weighted sampling was used, under-representing the non-responders so that the sample has equal numbers of donors and non-donors. 
+
+## Business Objectives and Goals
+
+#### The goal of this analysis is to maximize the United States National Veterans Organization's cost-effectiveness of their direct marketing campaign.
+
+#### The objective of the analysis is to create a predictive classification model to capture mail recipients that will make a donation to maximze the United States National Veterans Organization expected net profit.
+
+## Data Sources and Data Used
+
+#### In order to do achieve our business objectives and goals, the predictive model will be created and tested against a dataset made available to us, Fundraising.rds. The fundraising.rds dataset has 3,000 observations with 50% donors and 50% non-donors. 
+
+#### The reason our data set is using weighted sampling is important for our classification models. There can be a negative effect to our models if there is a difference in distribution for our classes. We would not want to use a simple random sample because it can be bias towards any particular class that may be more frequent.
+
+#### Once this model is made, we will use the model against an additional dataset, future_fundraising.rds, to make our predictions. The future_fundraising.rds dataset has 120 observations.
+
+#### To start our analysis, we will first want to load libraries that will be used throughout our analysis.
+
+```{r, warning = FALSE, error = FALSE, message=FALSE}
+
+library(readr)
+library(caret)
+library(car)
+library(MASS)
+library(dplyr)
+library(class)
+
+```
+
+## Type of Analysis Performed: What, Why, Findings
+
+#### We will begin our anaylsis by conducting exploratory data analysis on our fundraising.rds dataset. We will first need to load our dataset in order to do so.
+
+```{r}
+fundraising <- read_rds("C:/Users/moonw/Documents/UTSA MSDA Graduate Program/2_Summer 2021/STA 6543/Final Project - Modeling Competition/fundraising.rds")
+
+```
+
+#### Now that we have our dataset loaded, we will review the summary statistics by removing any null values that may be present, reviewing boxplots of each attribute, each attribute's correlation with each other, and observing if there is any collinearity amongst the attributes.
+
+```{r}
+attach(fundraising)
+fundraising=na.omit(fundraising)
+
+summary(fundraising)
+boxplot(fundraising[6:9])
+boxplot(fundraising[10])
+boxplot(fundraising[11:12])
+boxplot(fundraising[13:14])
+boxplot(fundraising[15:16])
+boxplot(fundraising[17:21])
+
+```
+
+#### From the summary of the data set and the boxplots of the each attribute, we can observe that the attributes num_child, wealth, home_value, med_fam_inc, avg_fam_inc, pct_lt15k, num_prom, large_gifts, largest_gifts, lasts_gift, time_lag, and avg_gift are all right skewed and contain outliers. We can also observe that the attriubte months_since_donated is left skewed.
+
+```{r}
+pairs(fundraising[6:21])
+
+```
+
+#### From the scatter plots above, which compares all attribtues except the zipcodes and homeowner attributes, we can take note that there is a positive correlation between the med_fam_inc and avg_fam_inc, med_fam_inc and home_value, and avg_fam_inc and home_value.
+
+#### Additionally, we can also see that there is a negative correlation between med_fam_inc and pct_lt15k, home_value and pct_lt15k, and avg_fam_inc and pct_lt15k.
+
+
+```{r}
+
+pairs(fundraising[1:12])
+
+pairs2 <- fundraising %>% select(-(6:12))
+pairs(pairs2)
+
+```
+
+
+#### The two scatter plots above allow us to compare the zipcodes and homeowner attributes to the rest of the data. From these, we can observe there there is no real correlation with these attributes to any others.
+
+#### Now that we have reviewed the summary statistics, we will now review our data for collinearity. Collinearity takes place when there are two or more variables that are highly correlated to the point that they cannot independently predict the value of the response variable. Collinearity reduces a variable's statistical significance and the attributes with a high collinear value must be removed one at a time and retested until there are no longer any attributes that have a high collinear value. Our threshold to remove a variable will be 5. We will fit our response variable, target, to a logisitic regression model and use the vif() function to find any collinear attributes. We will then remove attributes one at a time until we no longer have high collinear values above 5. 
+
+```{r}
+
+model_glm = glm(target~.,family = "binomial", data = fundraising)
+
+vif(model_glm)
+
+```
+
+#### From the values above, we can observe that zipconvert2 has the highest vif() value above 5. Due to this, we will remove this variable from our logistic model and retest for high collinear values.
+
+```{r}
+model_glm = glm(target~.-zipconvert2,family = "binomial", data = fundraising) 
+
+vif(model_glm)
+```
+
+#### From the values above, we can observe that avg_fam_inc has the highest vif() value above 5. Due to this, we will remove this variable from our logistic model and retest for high collinear values.
+
+```{r}
+model_glm = glm(target~.-zipconvert2-avg_fam_inc,family = "binomial", data = fundraising)
+
+vif(model_glm)
+
+```
+
+#### We can observe there are no longer vif() values that are above 5. This indicates that there is no longer a need to remove any more predictors.
+
+## Exclusions
+
+#### From our exploratory data analysis, we have removed the attributes zipconvert2 and avg_fam_inc. We will reflect this by removing these attributes and creating a new dataset called fundraising1.
+
+```{r}
+
+fundraising1 <- fundraising %>% select(-c(1,12))
+
+```
+
+## Cut-Off Analysis
+
+#### Moving forward, we will be using .05 as our cut off for statistical signifiance. For selecting our predictive models, we will only chose two models that have an error rate less than 50%.
+
+## Methodology Used, Background, and Benefits
+
+### Partitioning
+
+#### In order to create a predictive model and test its accuracy, it is neccessary to split our data into training and testing subsets. I chose to partition the data in two ways: an 80-20 split and Cross-Validation.
+
+#### 80-20 Split
+```{r}
+
+set.seed(12345)
+
+
+index = sample(nrow(fundraising1), 0.8*(nrow(fundraising1)))
+
+train = fundraising1[index,]
+test = fundraising1[-index,]
+
+```
+
+#### Cross Validation
+
+```{r}
+train_control <- trainControl(method="repeatedcv",number=10,repeats=3)
+
+```
+
+### Logistic Regression
+
+#### In order to see if a logistic regression model would work best as our predictive model, we will fit our train subset of fundraising1 to a glm() function. We will then create a prediction and apply it to our test subset to see the accuracy of our predictive model.
+
+```{r}
+glm.fit = glm(target~.,data = train, family = "binomial")
+
+glm.probs = predict(glm.fit, newdata = test, type = "response")
+glm.pred=rep("No Donor",length(glm.probs))
+glm.pred[glm.probs > 0.5] = "Donor"
+table(glm.pred, test$target)
+mean(glm.pred != test$target)
+```
+#### We observe an error rate for .533, which indicates a poor predictive capability of our model.
+
+#### In an atttempt to improve our error rate, we will observe the summary of the logistic model and remove variables based on their p-values.
+
+```{r}
+summary(glm.fit)
+```
+
+
+#### To determine statistical significance, we will utilize our hypothesis test: H0: B1 = 0 vs Ha: B1 != 0. If a predictor's p-value is greater than .05, the predictor is not statisitcally significant and we fail to reject the null hypothesis. Of all the p-values, only num_child and months_since_donate have p-values less than .05, therefore we reject the null hypothesis and determine these values to be statistically significant. 
+
+#### From this, we will refit our logistic model with just num_child and months_since_donate. We will then create a prediction and apply it to our test subset to see the accuracy of our predictive model.
+
+```{r}
+
+glm.fit2 = glm(target~num_child+months_since_donate,data = train, family = "binomial")
+
+glm.probs2 = predict(glm.fit2, newdata = test, type = "response")
+glm.pred2=rep("No Donor",length(glm.probs))
+glm.pred2[glm.probs2 > 0.5] = "Donor"
+table(glm.pred2, test$target)
+mean(glm.pred2 != test$target)
+```
+
+#### We observe an error rate for .548, which indicates a poor predictive capability of our model and no improvement when we reduced our predictors.
+
+### Linear Discriminant Analysis
+
+#### Here we will be fitting our data to a LDA model to observe if this would be a good predictive model. We will fit the train subset to a lda() function and then test its accuracy against our test subset.
+
+```{r}
+lda.fit = lda(target~.,data=train)
+
+lda.pred = predict(lda.fit, test)$class
+table(lda.pred, test$target)
+
+mean(lda.pred != test$target)
+```
+
+#### We observe an error rate for .468, which indicates a decent predictive capability of our model. This means we have a greater than 50% probability of making the correct prediction.
+
+### Quadratic Discriminant Analysis
+
+#### Here we will be fitting our data to a QDA model to observe if this would be a good predictive model. We will fit the train subset to a qda() function and then test its accuracy against our train subset.
+
+```{r}
+
+qda.fit = qda(target~., data=train)
+
+qda.pred = predict(qda.fit, test)$class
+table(qda.pred, test$target)
+
+mean(qda.pred != test$target)
+
+```
+
+#### We observe an error rate for .471, which indicates a decent predictive capability of our model. This means we have a greater than 50% probability of making the correct prediction.
+
+
+### K-Nearest Neighbors
+
+#### Here we will be fitting our data to a KNN model to observe if this would be a good predictive model. We will fit the cross validation training subset, train_control, to a knn function and then test its accuracy against our test subset. In this assessment, we will only use the variables we found to be statistically significant in our logisitic regression model, num_child and months_since_donate.
+
+```{r}
+
+knn <- train(target~num_child+months_since_donate,data = train,method='knn',trControl = train_control, tuneLength = 20)
+
+knnpred = predict(knn, test)
+mean(knnpred != test$target)
+```
+#### We observe an error rate for .448, which indicates our best predictive model so far. This means we have a greater than 50% probability of making the correct prediction.
+
+## Model Performance and Validation Results
+
+#### Now we will use our best performing model, KNN with an error rate of .448, to make our predictions.
+
+#### In order to apply our predictive model, we will need to load our data set, future_fundraising.rds.
+
+```{r}
+
+funtest <-  read_rds("C:/Users/moonw/Documents/UTSA MSDA Graduate Program/2_Summer 2021/STA 6543/Final Project - Modeling Competition/future_fundraising.rds")
+
+```
+
+### K-Nearest Neighbor Performance and Results
+
+
+```{r}
+
+knnpred =predict(knn, funtest)
+
+write.table(knnpred, file = "knnpredictions.csv", col.names = c("value"), row.names = FALSE)
+```
+
+## Recommendations
+
+#### I would recommend that the United States National Veterans Organization utilize a K-Nearest Neighbor predictive model to best improve their odds of maximizing their expected net profit and increasing the cost effectiveness of their direct mail fundraising.
+
+#### When doing so, I would advise the organization to prioritize their focus on the number of children the mail recipeint has and the last time the recipient donated. The more children a recipient has, the more likely they are to donate, and the longer it has been since the recipient last donated, the more likely they are to donate.
